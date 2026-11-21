@@ -1,0 +1,23 @@
+services:
+  wso2am:
+    image: ${WSO2_AM_IMAGE:-wso2/wso2am:4.4.0}
+    container_name: wso2am-4.4.0
+    ports:
+      - "${WSO2_HTTPS_PORT:-9443}:9443"     # Publisher, DevPortal, Carbon Console
+      - "${WSO2_GW_HTTPS_PORT:-8243}:8243"  # Gateway HTTPS
+      - "${WSO2_GW_HTTP_PORT:-8280}:8280"   # Gateway HTTP
+    networks:
+      - esb-net
+    # Phase 4: Uncomment after building FullNameNormalizerMediator JAR
+    # volumes:
+    #   - ../mediator/target/full-name-normalizer-1.0.0.jar:/home/wso2carbon/wso2am-4.4.0/repository/components/lib/full-name-normalizer-1.0.0.jar:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -k -s -o /dev/null -w '%{http_code}' https://localhost:9443/services/Version | grep -q 200"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+networks:
+  esb-net:
+    driver: bridge
