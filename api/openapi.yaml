@@ -1,0 +1,109 @@
+openapi: 3.0.3
+info:
+  title: Customer Overview API
+  version: v1
+  description: >
+    Aggregates customer profile (Backend A) and debt summary (Backend B)
+    through WSO2 API Manager 4.4.0.
+paths:
+  /customers/{nationalId}/overview:
+    get:
+      summary: Get unified customer and debt overview
+      operationId: getCustomerOverview
+      parameters:
+        - name: nationalId
+          in: path
+          required: true
+          description: 10-digit customer national ID
+          schema:
+            type: string
+            pattern: '^[0-9]{10}$'
+            example: "0012345678"
+        - name: X-Trace-Id
+          in: header
+          required: false
+          description: Optional client-provided correlation ID (auto-generated if omitted)
+          schema:
+            type: string
+            example: "abc-123"
+      responses:
+        '200':
+          description: Aggregated customer and debt overview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerOverviewResponse'
+        '400':
+          description: Invalid nationalId format (must be 10 digits)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Customer not found in Backend A
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Backend error, business error, or invalid JSON response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '504':
+          description: Backend request timed out
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  schemas:
+    CustomerOverviewResponse:
+      type: object
+      properties:
+        traceId:
+          type: string
+          example: "abc-123"
+        status:
+          type: object
+          properties:
+            code:
+              type: string
+              example: "SUCCESS"
+        data:
+          type: object
+          properties:
+            nationalId:
+              type: string
+              example: "0012345678"
+            fullName:
+              type: string
+              example: "Ali Ahmadi"
+            customerType:
+              type: string
+              example: "REAL"
+            totalDebt:
+              type: number
+              example: 1500000
+            currency:
+              type: string
+              example: "IRR"
+            debtCount:
+              type: integer
+              example: 2
+    ErrorResponse:
+      type: object
+      properties:
+        traceId:
+          type: string
+          example: "abc-123"
+        status:
+          type: object
+          properties:
+            code:
+              type: string
+              example: "BAD_REQUEST"
+            message:
+              type: string
+              example: "nationalId must be exactly 10 digits"

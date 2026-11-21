@@ -1,0 +1,15 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "GET",
+    "urlPath": "/debts/0000000501"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "result": { "code": "DEBT_SERVICE_UNAVAILABLE" },
+      "data": null
+    }
+  }
+}

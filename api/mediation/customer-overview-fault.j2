@@ -1,0 +1,55 @@
+<filter source="get-property('traceId')" regex=".+">
+    <then/>
+    <else>
+        <property name="traceId" expression="substring-after(get-property('MessageID'), 'urn:uuid:')" scope="default" type="STRING"/>
+    </else>
+</filter>
+
+<log level="custom">
+    <property name="event" value="CUSTOMER_OVERVIEW_FAULT"/>
+    <property name="traceId" expression="get-property('traceId')"/>
+    <property name="errorCode" expression="get-property('ERROR_CODE')"/>
+</log>
+
+<filter source="get-property('ERROR_CODE')" regex="101504|401002">
+    <then>
+        <property name="HTTP_SC" value="504" scope="axis2" type="STRING"/>
+        <payloadFactory media-type="json">
+            <format>
+                {
+                  "traceId": "$1",
+                  "status": {
+                    "code": "GATEWAY_TIMEOUT",
+                    "message": "Upstream backend service timed out"
+                  }
+                }
+            </format>
+            <args>
+                <arg evaluator="xml" expression="get-property('traceId')"/>
+            </args>
+        </payloadFactory>
+    </then>
+    <else>
+        <property name="HTTP_SC" value="502" scope="axis2" type="STRING"/>
+        <payloadFactory media-type="json">
+            <format>
+                {
+                  "traceId": "$1",
+                  "status": {
+                    "code": "BAD_GATEWAY",
+                    "message": "Upstream backend error or invalid response payload"
+                  }
+                }
+            </format>
+            <args>
+                <arg evaluator="xml" expression="get-property('traceId')"/>
+            </args>
+        </payloadFactory>
+    </else>
+</filter>
+
+<property name="X-Trace-Id" expression="get-property('traceId')" scope="transport" type="STRING"/>
+<property name="NO_ENTITY_BODY" scope="axis2" action="remove"/>
+<property name="messageType" value="application/json" scope="axis2"/>
+<property name="ContentType" value="application/json" scope="axis2"/>
+<respond/>

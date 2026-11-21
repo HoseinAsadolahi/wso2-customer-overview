@@ -1,0 +1,19 @@
+{
+  "priority": 2,
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/customers/000000050[0124]"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "status": { "statusCode": 200 },
+      "data": {
+        "nationalId": "0000000500",
+        "fullName": "Test Customer",
+        "customerType": "REAL"
+      }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "GET",
+    "urlPath": "/debts/0000000502"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "body": "{\"result\": {\"code\": \"OK\"}, \"data\": {INVALID_JSON"
+  }
+}

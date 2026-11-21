@@ -1,0 +1,16 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "GET",
+    "urlPath": "/debts/0000000504"
+  },
+  "response": {
+    "status": 200,
+    "fixedDelayMilliseconds": 10000,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "result": { "code": "OK" },
+      "data": { "totalDebt": 0, "currency": "IRR", "items": [] }
+    }
+  }
+}

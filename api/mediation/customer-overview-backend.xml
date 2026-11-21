@@ -1,0 +1,308 @@
+<sequence xmlns="http://ws.apache.org/ns/synapse" name="customer-overview-backend" onError="CustomerOverviewAPI:vv1--Fault">
+    <!-- 1. Initialize Trace ID (X-Trace-Id header if provided, else Synapse MessageID UUID) -->
+    <filter source="boolean($trp:X-Trace-Id)" regex="true">
+        <then>
+            <property name="traceId" expression="$trp:X-Trace-Id" scope="default" type="STRING"/>
+        </then>
+        <else>
+            <property name="traceId" expression="substring-after(get-property('MessageID'), 'urn:uuid:')" scope="default" type="STRING"/>
+        </else>
+    </filter>
+
+    <log level="custom">
+        <property name="event" value="CUSTOMER_OVERVIEW_REQUEST_START"/>
+        <property name="traceId" expression="$ctx:traceId"/>
+    </log>
+
+    <!-- 2. Validate nationalId: must be exactly 10 digits -->
+    <filter source="get-property('uri.var.nationalId')" regex="^[0-9]{10}$">
+        <then>
+            <!-- Strip client Authorization header & path postfix before internal calls -->
+            <header name="Authorization" scope="transport" action="remove"/>
+            <property name="REST_URL_POSTFIX" scope="axis2" action="remove"/>
+
+            <!-- 3. Call Backend A: Customer Service -->
+            <property name="non.error.http.status.codes" value="400,404,500,502,503" scope="axis2"/>
+            <call blocking="true">
+                <endpoint>
+                    <http method="get" uri-template="http://mock-customer:8080/customers/{uri.var.nationalId}">
+                        <timeout>
+                            <duration>3000</duration>
+                            <responseAction>fault</responseAction>
+                        </timeout>
+                        <suspendOnFailure>
+                            <errorCodes>-1</errorCodes>
+                            <initialDuration>0</initialDuration>
+                            <progressionFactor>1.0</progressionFactor>
+                            <maximumDuration>0</maximumDuration>
+                        </suspendOnFailure>
+                        <markForSuspension>
+                            <errorCodes>-1</errorCodes>
+                            <retriesBeforeSuspension>0</retriesBeforeSuspension>
+                            <retryDelay>0</retryDelay>
+                        </markForSuspension>
+                    </http>
+                </endpoint>
+            </call>
+
+            <property name="customerHttpStatus" expression="$axis2:HTTP_SC" scope="default" type="STRING"/>
+
+            <!-- Handle Backend A 404 Not Found -->
+            <filter source="$ctx:customerHttpStatus" regex="404">
+                <then>
+                    <log level="custom">
+                        <property name="event" value="CUSTOMER_NOT_FOUND"/>
+                        <property name="traceId" expression="$ctx:traceId"/>
+                    </log>
+                    <property name="HTTP_SC" value="404" scope="axis2" type="STRING"/>
+                    <property name="X-Trace-Id" expression="$ctx:traceId" scope="transport" type="STRING"/>
+                    <payloadFactory media-type="json">
+                        <format>
+                            {
+                              "traceId": "$1",
+                              "status": {
+                                "code": "NOT_FOUND",
+                                "message": "Customer not found"
+                              }
+                            }
+                        </format>
+                        <args>
+                            <arg evaluator="xml" expression="$ctx:traceId"/>
+                        </args>
+                    </payloadFactory>
+                    <property name="messageType" value="application/json" scope="axis2"/>
+                    <property name="ContentType" value="application/json" scope="axis2"/>
+                    <respond/>
+                </then>
+                <else/>
+            </filter>
+
+            <!-- Handle Backend A non-200 HTTP errors -->
+            <filter source="$ctx:customerHttpStatus" regex="200">
+                <then/>
+                <else>
+                    <log level="custom">
+                        <property name="event" value="CUSTOMER_BACKEND_HTTP_ERROR"/>
+                        <property name="traceId" expression="$ctx:traceId"/>
+                        <property name="upstreamStatus" expression="$ctx:customerHttpStatus"/>
+                    </log>
+                    <property name="HTTP_SC" value="502" scope="axis2" type="STRING"/>
+                    <property name="X-Trace-Id" expression="$ctx:traceId" scope="transport" type="STRING"/>
+                    <payloadFactory media-type="json">
+                        <format>
+                            {
+                              "traceId": "$1",
+                              "status": {
+                                "code": "BAD_GATEWAY",
+                                "message": "Customer backend service error"
+                              }
+                            }
+                        </format>
+                        <args>
+                            <arg evaluator="xml" expression="$ctx:traceId"/>
+                        </args>
+                    </payloadFactory>
+                    <property name="messageType" value="application/json" scope="axis2"/>
+                    <property name="ContentType" value="application/json" scope="axis2"/>
+                    <respond/>
+                </else>
+            </filter>
+
+            <!-- Extract & validate Backend A JSON body -->
+            <property name="customerStatusCode" expression="json-eval($.status.statusCode)" scope="default" type="STRING"/>
+            <property name="customerNationalId" expression="json-eval($.data.nationalId)" scope="default" type="STRING"/>
+            <property name="rawFullName" expression="json-eval($.data.fullName)" scope="default" type="STRING"/>
+            <property name="customerType" expression="json-eval($.data.customerType)" scope="default" type="STRING"/>
+
+            <filter xpath="$ctx:customerStatusCode = '200' and string-length($ctx:customerNationalId) &gt; 0 and string-length($ctx:rawFullName) &gt; 0 and string-length($ctx:customerType) &gt; 0">
+                <then/>
+                <else>
+                    <log level="custom">
+                        <property name="event" value="CUSTOMER_BACKEND_BUSINESS_OR_SCHEMA_ERROR"/>
+                        <property name="traceId" expression="$ctx:traceId"/>
+                    </log>
+                    <property name="HTTP_SC" value="502" scope="axis2" type="STRING"/>
+                    <property name="X-Trace-Id" expression="$ctx:traceId" scope="transport" type="STRING"/>
+                    <payloadFactory media-type="json">
+                        <format>
+                            {
+                              "traceId": "$1",
+                              "status": {
+                                "code": "BAD_GATEWAY",
+                                "message": "Invalid or unsuccessful response from customer service"
+                              }
+                            }
+                        </format>
+                        <args>
+                            <arg evaluator="xml" expression="$ctx:traceId"/>
+                        </args>
+                    </payloadFactory>
+                    <property name="messageType" value="application/json" scope="axis2"/>
+                    <property name="ContentType" value="application/json" scope="axis2"/>
+                    <respond/>
+                </else>
+            </filter>
+
+            <!-- 4. Call Backend B: Debt Service -->
+            <property name="REST_URL_POSTFIX" scope="axis2" action="remove"/>
+            <property name="non.error.http.status.codes" value="400,404,500,502,503" scope="axis2"/>
+            <call blocking="true">
+                <endpoint>
+                    <http method="get" uri-template="http://mock-debt:8080/debts/{uri.var.nationalId}">
+                        <timeout>
+                            <duration>3000</duration>
+                            <responseAction>fault</responseAction>
+                        </timeout>
+                        <suspendOnFailure>
+                            <errorCodes>-1</errorCodes>
+                            <initialDuration>0</initialDuration>
+                            <progressionFactor>1.0</progressionFactor>
+                            <maximumDuration>0</maximumDuration>
+                        </suspendOnFailure>
+                        <markForSuspension>
+                            <errorCodes>-1</errorCodes>
+                            <retriesBeforeSuspension>0</retriesBeforeSuspension>
+                            <retryDelay>0</retryDelay>
+                        </markForSuspension>
+                    </http>
+                </endpoint>
+            </call>
+
+            <property name="debtHttpStatus" expression="$axis2:HTTP_SC" scope="default" type="STRING"/>
+
+            <!-- Handle Backend B non-200 HTTP errors -->
+            <filter source="$ctx:debtHttpStatus" regex="200">
+                <then/>
+                <else>
+                    <log level="custom">
+                        <property name="event" value="DEBT_BACKEND_HTTP_ERROR"/>
+                        <property name="traceId" expression="$ctx:traceId"/>
+                        <property name="upstreamStatus" expression="$ctx:debtHttpStatus"/>
+                    </log>
+                    <property name="HTTP_SC" value="502" scope="axis2" type="STRING"/>
+                    <property name="X-Trace-Id" expression="$ctx:traceId" scope="transport" type="STRING"/>
+                    <payloadFactory media-type="json">
+                        <format>
+                            {
+                              "traceId": "$1",
+                              "status": {
+                                "code": "BAD_GATEWAY",
+                                "message": "Debt backend service error"
+                              }
+                            }
+                        </format>
+                        <args>
+                            <arg evaluator="xml" expression="$ctx:traceId"/>
+                        </args>
+                    </payloadFactory>
+                    <property name="messageType" value="application/json" scope="axis2"/>
+                    <property name="ContentType" value="application/json" scope="axis2"/>
+                    <respond/>
+                </else>
+            </filter>
+
+            <!-- Extract & validate Backend B JSON body -->
+            <property name="debtResultCode" expression="json-eval($.result.code)" scope="default" type="STRING"/>
+            <property name="totalDebt" expression="json-eval($.data.totalDebt)" scope="default" type="STRING"/>
+            <property name="currency" expression="json-eval($.data.currency)" scope="default" type="STRING"/>
+            <property name="debtCount" expression="json-eval($.data.items.length())" scope="default" type="STRING"/>
+
+            <filter xpath="$ctx:debtResultCode = 'OK' and string-length($ctx:totalDebt) &gt; 0 and string-length($ctx:currency) &gt; 0 and string-length($ctx:debtCount) &gt; 0">
+                <then/>
+                <else>
+                    <log level="custom">
+                        <property name="event" value="DEBT_BACKEND_BUSINESS_OR_SCHEMA_ERROR"/>
+                        <property name="traceId" expression="$ctx:traceId"/>
+                    </log>
+                    <property name="HTTP_SC" value="502" scope="axis2" type="STRING"/>
+                    <property name="X-Trace-Id" expression="$ctx:traceId" scope="transport" type="STRING"/>
+                    <payloadFactory media-type="json">
+                        <format>
+                            {
+                              "traceId": "$1",
+                              "status": {
+                                "code": "BAD_GATEWAY",
+                                "message": "Invalid or unsuccessful response from debt service"
+                              }
+                            }
+                        </format>
+                        <args>
+                            <arg evaluator="xml" expression="$ctx:traceId"/>
+                        </args>
+                    </payloadFactory>
+                    <property name="messageType" value="application/json" scope="axis2"/>
+                    <property name="ContentType" value="application/json" scope="axis2"/>
+                    <respond/>
+                </else>
+            </filter>
+
+            <!-- Phase 4 Hook: FullNameNormalizerMediator will replace this pass-through property -->
+            <property name="normalizedFullName" expression="$ctx:rawFullName" scope="default" type="STRING"/>
+
+            <!-- 5. Build Unified JSON Response -->
+            <payloadFactory media-type="json">
+                <format>
+                    {
+                      "traceId": "$1",
+                      "status": {
+                        "code": "SUCCESS"
+                      },
+                      "data": {
+                        "nationalId": "$2",
+                        "fullName": "$3",
+                        "customerType": "$4",
+                        "totalDebt": $5,
+                        "currency": "$6",
+                        "debtCount": $7
+                      }
+                    }
+                </format>
+                <args>
+                    <arg evaluator="xml" expression="$ctx:traceId"/>
+                    <arg evaluator="xml" expression="$ctx:customerNationalId"/>
+                    <arg evaluator="xml" expression="$ctx:normalizedFullName"/>
+                    <arg evaluator="xml" expression="$ctx:customerType"/>
+                    <arg evaluator="xml" expression="$ctx:totalDebt"/>
+                    <arg evaluator="xml" expression="$ctx:currency"/>
+                    <arg evaluator="xml" expression="$ctx:debtCount"/>
+                </args>
+            </payloadFactory>
+
+            <log level="custom">
+                <property name="event" value="CUSTOMER_OVERVIEW_REQUEST_SUCCESS"/>
+                <property name="traceId" expression="$ctx:traceId"/>
+            </log>
+
+            <property name="HTTP_SC" value="200" scope="axis2" type="STRING"/>
+            <property name="X-Trace-Id" expression="$ctx:traceId" scope="transport" type="STRING"/>
+            <property name="messageType" value="application/json" scope="axis2"/>
+            <property name="ContentType" value="application/json" scope="axis2"/>
+            <respond/>
+        </then>
+        <else>
+            <log level="custom">
+                <property name="event" value="INVALID_NATIONAL_ID"/>
+                <property name="traceId" expression="$ctx:traceId"/>
+            </log>
+            <property name="HTTP_SC" value="400" scope="axis2" type="STRING"/>
+            <property name="X-Trace-Id" expression="$ctx:traceId" scope="transport" type="STRING"/>
+            <payloadFactory media-type="json">
+                <format>
+                    {
+                      "traceId": "$1",
+                      "status": {
+                        "code": "BAD_REQUEST",
+                        "message": "Invalid nationalId: must be exactly 10 digits"
+                      }
+                    }
+                </format>
+                <args>
+                    <arg evaluator="xml" expression="$ctx:traceId"/>
+                </args>
+            </payloadFactory>
+            <property name="messageType" value="application/json" scope="axis2"/>
+            <property name="ContentType" value="application/json" scope="axis2"/>
+            <respond/>
+        </else>
+    </filter>
+</sequence>

@@ -1,0 +1,19 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "GET",
+    "urlPath": "/customers/0012345679"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "status": { "statusCode": 200 },
+      "data": {
+        "nationalId": "0012345679",
+        "fullName": "  Ali Ahmadi  ",
+        "customerType": "REAL"
+      }
+    }
+  }
+}
