@@ -1,0 +1,16 @@
+# Environment & secrets
+.env
+*.token
+*.key
+*.pem
+
+# Maven / Java
+mediator/target/
+*.jar
+!docker/lib/*.jar
+
+# OS & IDEs
+.DS_Store
+.idea/
+.vscode/
+*.iml
