@@ -138,3 +138,64 @@ To inspect structured `traceId` and fault logs:
 ```bash
 docker logs wso2am-4.4.0 --tail 40 | grep -E "CUSTOMER_OVERVIEW|DEBT_BACKEND"
 ```
+## Phase 3: Security (OAuth2 / JWT) & Rate Limiting
+
+### Security & Throttling Architecture
+
+- **OAuth2 / JWT Enforcement:**
+  - Application-level security is set to **OAuth2 (Mandatory)** over **HTTPS**, with endpoint security enabled on `GET /customers/{nationalId}/overview`.
+  - WSO2 APIM 4.4.0's Resident Key Manager issues self-contained **RS256-signed JWT** access tokens by default via the `client_credentials` (or `password`) grant at `https://localhost:9443/oauth2/token`.
+  - The Gateway validates token signatures, expiration (`exp`), and active subscriptions locally before routing traffic to `customer-overview-backend`.
+- **Rate Limiting (`10PerMin`):**
+  - Enforced via a custom Subscription Rate Limiting Policy (`10PerMin`: **10 requests per 1 minute**, **Stop On Quota Reach** enabled).
+  - Bound as the exclusive business plan on `CustomerOverviewAPI` so subscribed applications cannot exceed the quota (`HTTP 429`, WSO2 error code `900804`).
+
+---
+
+### Artifacts Added
+
+| File | Role |
+| :--- | :--- |
+| `.env.example` | Template for `CONSUMER_KEY` and `CONSUMER_SECRET` (real `.env` is gitignored) |
+| `tests/set-token.sh` | Sourced helper script that fetches a JWT from `https://localhost:9443/oauth2/token` and exports `ACCESS_TOKEN` |
+| `tests/phase3-tests.sh` | Automated verification suite for `401` auth checks, JWT structure, and `429` throttling |
+
+---
+
+### Setup & Configuration (Clean Environment)
+
+1. **Create the `10PerMin` Subscription Policy in Admin Portal (`https://localhost:9443/admin`):**
+   - Go to **Rate Limiting Policies → Subscription Policies → Add Policy**.
+   - Set **Name:** `10PerMin`, **Quota Type:** `Request Count`, **Request Count:** `10`, **Unit Time:** `1` **Minutes**, **Stop On Quota Reach:** Checked, **Billing Plan:** `Free`, and click **Save**.
+2. **Bind Policy & Verify Security in Publisher (`https://localhost:9443/publisher`):**
+   - Under **API Configurations → Runtime**, ensure **OAuth2 (Mandatory)** and **HTTPS** are enabled.
+   - Under **Portal Configurations → Subscriptions**, select **10PerMin** only (uncheck `Unlimited`), save, and **Deploy New Revision**.
+3. **Update Application Subscription & Credentials in Developer Portal (`https://localhost:9443/devportal`):**
+   - Under **Applications → DefaultApplication → Subscriptions**, update `CustomerOverviewAPI (v1)` to the **10PerMin** business plan.
+   - Copy the **Production** `Consumer Key` and `Consumer Secret` into a local `.env` file (based on `.env.example`):
+     ```bash
+     cp .env.example .env
+     # Fill in CONSUMER_KEY and CONSUMER_SECRET
+     ```
+
+---
+
+### Verification
+
+Fetch a fresh JWT programmatically and run the Phase 3 suite:
+
+```bash
+source tests/set-token.sh
+./tests/phase3-tests.sh
+```
+
+#### Covered Test Scenarios
+
+| # | Scenario | Expected HTTP | Notes |
+| :--- | :--- | :--- | :--- |
+| 1 | Missing `Authorization` header | `401` | Rejected by Gateway authentication handler |
+| 2 | Invalid / tampered JWT token | `401` | Signature/format rejected (`invalid.jwt.signature`) |
+| 3 | Valid JWT (`client_credentials`) | `200` | Verifies 3-segment JWT format and successful backend orchestration |
+| 4 | Burst exceeding 10 req/min (15 requests, 0.3s interval) | `429` | Enforces `10PerMin` quota via embedded Traffic Manager |
+
+*(Note: After triggering `429`, wait ~60 seconds for the 1-minute throttling window to reset before re-running the test suite.)*
