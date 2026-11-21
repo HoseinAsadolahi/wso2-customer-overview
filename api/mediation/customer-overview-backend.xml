@@ -236,8 +236,15 @@
                 </else>
             </filter>
 
-            <!-- Phase 4 Hook: FullNameNormalizerMediator will replace this pass-through property -->
-            <property name="normalizedFullName" expression="$ctx:rawFullName" scope="default" type="STRING"/>
+            <!-- Phase 4: Normalize rawFullName via custom Java Class Mediator -->
+            <class name="com.customeroverview.mediator.FullNameNormalizerMediator">
+                <property name="inputProperty" value="rawFullName"/>
+                <property name="outputProperty" value="normalizedFullName"/>
+            </class>
+            <log level="custom">
+                <property name="event" value="FULL_NAME_NORMALIZED"/>
+                <property name="traceId" expression="$ctx:traceId"/>
+            </log>
 
             <!-- 5. Build Unified JSON Response -->
             <payloadFactory media-type="json">

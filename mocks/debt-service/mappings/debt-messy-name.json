@@ -1,0 +1,24 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "/debts/0099887766"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "result": {
+        "code": "OK"
+      },
+      "data": {
+        "totalDebt": 1500000,
+        "currency": "IRR",
+        "items": [
+          { "id": "D-101", "amount": 1500000 }
+        ]
+      }
+    }
+  }
+}

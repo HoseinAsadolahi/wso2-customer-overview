@@ -199,3 +199,64 @@ source tests/set-token.sh
 | 4 | Burst exceeding 10 req/min (15 requests, 0.3s interval) | `429` | Enforces `10PerMin` quota via embedded Traffic Manager |
 
 *(Note: After triggering `429`, wait ~60 seconds for the 1-minute throttling window to reset before re-running the test suite.)*
+
+## Phase 4: Custom Java Class Mediator (`FullNameNormalizerMediator`)
+
+### Architecture & Normalization Rules
+
+A standalone Java Class Mediator (`com.customeroverview.mediator.FullNameNormalizerMediator`) extending `org.apache.synapse.mediators.AbstractMediator` normalizes customer names during sequence execution before the unified JSON response is built:
+
+- **Whitespace Normalization:** Trims leading/trailing whitespace and collapses repeated spaces, tabs, newlines, and non-breaking spaces (`\u00A0`) into a single space.
+- **Persian/Arabic Character Unification:** Converts Arabic `ي` (`\u064A`) and `ك` (`\u0643`) to standard Persian `ی` (`\u06CC`) and `ک` (`\u06A9`).
+- **Casing Normalization:** Applies token-level title-casing for Latin names (e.g., `"   aLi    rEzAeI  "` → `"Ali Rezaei"`) while preserving non-Latin scripts.
+- **Configurable Synapse Properties:** Supports `<property name="inputProperty"/>` (default: `rawFullName`) and `<property name="outputProperty"/>` (default: `normalizedFullName`), and emits an audit log entry containing `traceId`.
+- **Portable Maven Build:** Targets Java 11 bytecode with `org.apache.synapse:synapse-core:3.0.1` (`provided` scope) and excludes legacy HTTP-only transitive WSO2 artifacts so the project builds cleanly from Maven Central on Maven 3.8.1+.
+
+---
+
+### Artifacts Added / Updated
+
+| File | Role |
+| :--- | :--- |
+| `mediator/full-name-normalizer/pom.xml` | Maven build configuration (Java 11, `synapse-core` provided, JUnit 5) |
+| `mediator/full-name-normalizer/src/main/java/com/customeroverview/mediator/FullNameNormalizerMediator.java` | Custom Synapse Class Mediator implementation |
+| `mediator/full-name-normalizer/src/test/java/com/customeroverview/mediator/FullNameNormalizerMediatorTest.java` | JUnit 5 unit tests for normalization edge cases |
+| `api/mediation/customer-overview-backend.xml` | Wired `<class name="com.customeroverview.mediator.FullNameNormalizerMediator">` in place of the pass-through property |
+| `docker/docker-compose.yml` | Bind-mounts the built JAR into WSO2's `repository/components/lib/` for automatic OSGi conversion on startup |
+| `mocks/customer-service/mappings/customer-messy-name.json` & `mocks/debt-service/mappings/debt-messy-name.json` | WireMock fixtures (`nationalId=0099887766`) returning unnormalized `fullName` data |
+| `tests/phase4-tests.sh` | Automated unit + end-to-end verification script |
+
+---
+
+### Build & Deployment (Clean Environment)
+
+1. **Build the mediator JAR (required before starting Docker on a fresh clone):**
+   ```bash
+   mvn -f mediator/full-name-normalizer/pom.xml clean package
+   ```
+   *(This generates `mediator/full-name-normalizer/target/full-name-normalizer-mediator-1.0.0.jar`, which `docker/docker-compose.yml` mounts into `/home/wso2carbon/wso2am-4.4.0/repository/components/lib/`.)*
+
+2. **Start or restart WSO2 APIM:**
+   - On a clean environment, `docker compose -f docker/docker-compose.yml up -d` loads the JAR automatically and converts it into an OSGi bundle in `repository/components/dropins/`.
+   - On an existing running container (to preserve H2 state), copy the JAR into `repository/components/lib/` and run `docker restart wso2am-4.4.0`.
+
+3. **Deploy the updated sequence in Publisher (`https://localhost:9443/publisher`):**
+   - Upload `api/mediation/customer-overview-backend.xml` under **CustomerOverviewAPI → Endpoints → Sequence Backend**, click **Save**, and **Deploy New Revision**.
+
+---
+
+### Verification
+
+```bash
+source tests/set-token.sh
+./tests/phase4-tests.sh
+```
+
+#### Covered Test Scenarios
+
+| # | Check | Verification Criteria |
+| :--- | :--- | :--- |
+| 1 | JUnit 5 Unit Tests | Whitespace collapsing, Latin title-casing, Arabic-to-Persian character normalization, and null/blank handling |
+| 2 | E2E Name Normalization (`0099887766`) | `HTTP 200`, `status.code=SUCCESS`, `"   aLi    rEzAeI  "` transformed to `"Ali Rezaei"`, `debtCount=1`, `traceId` echoed |
+| 3 | Gateway Audit Log | Confirms `FullNameNormalizerMediator executed` logged with matching `traceId` |
+| 4 | Regression (`0012345678`) | Existing Phase 2 happy-path flow continues returning `HTTP 200` with normalized `fullName` |

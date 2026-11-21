@@ -1,0 +1,23 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "/customers/0099887766"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "status": {
+        "statusCode": "200",
+        "message": "OK"
+      },
+      "data": {
+        "nationalId": "0099887766",
+        "fullName": "   aLi    rEzAeI  ",
+        "customerType": "INDIVIDUAL"
+      }
+    }
+  }
+}

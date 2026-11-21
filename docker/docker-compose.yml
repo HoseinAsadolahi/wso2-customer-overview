@@ -2,6 +2,8 @@ services:
   wso2am:
     image: ${WSO2_AM_IMAGE:-wso2/wso2am:4.4.0}
     container_name: wso2am-4.4.0
+    volumes:
+      - ../mediator/full-name-normalizer/target/full-name-normalizer-mediator-1.0.0.jar:/home/wso2carbon/wso2am-4.4.0/repository/components/lib/full-name-normalizer-mediator-1.0.0.jar:ro
     ports:
       - "${WSO2_HTTPS_PORT:-9443}:9443"     # Publisher, DevPortal, Carbon Console
       - "${WSO2_GW_HTTPS_PORT:-8243}:8243"  # Gateway HTTPS

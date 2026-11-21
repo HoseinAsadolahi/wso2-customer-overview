@@ -14,3 +14,4 @@ mediator/target/
 .idea/
 .vscode/
 *.iml
+mediator/full-name-normalizer/target/
